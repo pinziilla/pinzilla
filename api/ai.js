@@ -5,7 +5,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
-  const { provider, apiKey, model, baseUrl, prompt, raw } = req.body;
+  const { provider, apiKey, model, baseUrl, prompt } = req.body;
   if (!apiKey) { res.status(400).json({ error: 'No API key provided' }); return; }
   if (!prompt) { res.status(400).json({ error: 'No prompt provided' }); return; }
 
@@ -22,14 +22,13 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: model || 'claude-sonnet-4-20250514',
-          max_tokens: 1200,
+          max_tokens: 1500,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error?.message || 'Claude error ' + r.status);
       text = data.content?.[0]?.text || '';
-
     } else {
       const endpoint =
         provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' :
@@ -43,9 +42,9 @@ export default async function handler(req, res) {
           'Authorization': 'Bearer ' + apiKey,
         },
         body: JSON.stringify({
-          model: model || (provider === 'openai' ? 'gpt-4o-mini' : model || 'gpt-4o-mini'),
+          model: model || 'gpt-4o-mini',
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 1200,
+          max_tokens: 1500,
         }),
       });
       const data = await r.json();
@@ -55,24 +54,20 @@ export default async function handler(req, res) {
 
     text = text.trim();
 
-    // raw=true means return plain text (for description-only regeneration)
-    if (raw) {
-      return res.status(200).json({ text });
-    }
-
-    // Otherwise parse JSON
+    // Extract JSON — handle cases where model adds extra text
     const clean = text.replace(/```json|```/gi, '').trim();
     let parsed;
-    try {
-      parsed = JSON.parse(clean);
-    } catch {
-      // Try to extract JSON from response if AI added extra text
+
+    // Try direct parse first
+    try { parsed = JSON.parse(clean); }
+    catch {
+      // Find JSON object in response
       const match = clean.match(/\{[\s\S]*\}/);
       if (match) {
         try { parsed = JSON.parse(match[0]); }
-        catch { return res.status(500).json({ error: 'AI returned invalid JSON', raw: clean.substring(0, 300) }); }
+        catch { return res.status(500).json({ error: 'AI returned invalid JSON. Raw: ' + clean.substring(0, 200) }); }
       } else {
-        return res.status(500).json({ error: 'AI returned invalid JSON', raw: clean.substring(0, 300) });
+        return res.status(500).json({ error: 'No JSON found in response. Raw: ' + clean.substring(0, 200) });
       }
     }
 
