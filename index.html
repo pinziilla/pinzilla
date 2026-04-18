@@ -391,16 +391,14 @@ tr:hover td{background:#f9fafb}
       <button class="btn pr" onclick="dlCSV()">⬇ Download CSV</button>
     </div>
   </div>
-  <div class="alert ao mb">✅ Exact Pinterest official CSV format — columns match Pinterest bulk upload exactly</div>
+  <div class="alert ao mb">✅ Exact Pinterest CSV format: Title, Description, Link, Image URL (link), Board, Keywords, Publish date, Note — Board must exactly match your Pinterest board name</div>
   <div class="alert ai mb" style="font-size:12px">
     <b>Pinterest CSV rules:</b><br>
-    • <b>Title</b> — max 100 characters<br>
-    • <b>Media URL</b> — public URL to image (PNG/JPEG) or video (MP4). Must be a real internet URL, not a local file<br>
-    • <b>Pinterest board</b> — exact board name on Pinterest. Can include section: <code>Summer Eats/Appetizers</code><br>
-    • <b>Thumbnail</b> — leave blank for images, only needed for videos<br>
-    • <b>Description</b> — max 500 characters<br>
-    • <b>Keywords</b> — comma-separated. Example: <code>healthy, appetizers, hummus, summer</code><br>
-    • <b>Publish date</b> — format: <code>2025-08-15</code> or <code>2025-08-15T08:00:00</code> for specific time. Leave blank to publish immediately
+    • <b>Board</b> — must match your Pinterest board name exactly (capital letters matter). Example: "Summer Fashion" not "summer fashion"<br>
+    • <b>Image URL</b> — must be a public internet link (Cloudinary/ImgBB URL). Local file paths will not work<br>
+    • <b>Keywords</b> — space-separated words, no # symbol. Example: <code>fashion summer outfit ideas 2025</code><br>
+    • <b>Publish date</b> — format: <code>2025-08-15 08:00:00</code> or leave blank to publish immediately<br>
+    • <b>No BOM</b> — our export is BOM-free (Pinterest rejects files with BOM)
     <div style="margin-top:8px"><button class="btn sm" onclick="dlSampleCSV()">📄 Download Pinterest Sample CSV</button> <span style="font-size:11px;color:#6b7280">Download Pinterest's exact format as reference</span></div>
   </div>
   <div id="exp-cont"></div>
@@ -432,8 +430,7 @@ const ST = {
   _newBoards: []
 };
 
-// EXACT Pinterest official CSV column names (from Pinterest bulk upload docs)
-const CSV_HDRS = ['Title','Media URL','Pinterest board','Thumbnail','Description','Link','Publish date','Keywords'];
+const CSV_HDRS = ['Title','Description','Link','Image URL (link)','Board','Keywords','Publish date','Note'];
 
 // ─── PERSIST ─────────────────────────────────────────────────
 function sv() {
@@ -537,72 +534,92 @@ function saveAllSettings() {
 }
 
 // ─── AI CALL ─────────────────────────────────────────────────
-async function callAI(url, existingTitle) {
-  const {aiProvider:prov,aiKey:key,aiModel:model,aiBaseUrl:baseUrl}=ST.s;
-  if(!key) return {error:'No API key set. Go to Settings tab.'};
-  const boards=getActiveBoardList();
-  const boardHint=boards.length?`BOARDS LIST (you MUST pick from this exact list): ${boards.join(', ')}`:'Suggest one specific Pinterest board name.';
+function buildPrompt(url, existingTitle, boards, allExistingDescs) {
+  // Extract meaningful topic from URL slug
+  const parts = url.split('/').filter(Boolean);
+  const slug = (parts.pop() || parts.pop() || '').replace(/[-_]/g,' ').replace(/\.\w+$/,'').trim();
+  const domain = url.split('/')[2] || '';
 
-  // Extract topic clues from the URL slug for better context
-  const urlSlug = url.split('/').filter(Boolean).pop()||'';
-  const topicHint = urlSlug.replace(/[-_]/g,' ').replace(/\.\w+$/,'').replace(/\b\w/g,c=>c.toUpperCase())||'';
+  const boardList = boards.length ? `BOARD LIST — pick the best match: ${boards.join(' | ')}` : 'Suggest a specific Pinterest board name.';
 
-  const variationInstruction = existingTitle
-    ? `IMPORTANT: The previous title was: "${existingTitle}". You MUST create a COMPLETELY DIFFERENT angle. Use a different hook, different structure, different benefit. No similar wording at all.`
+  const variationNote = existingTitle
+    ? `⚠ VARIATION MODE: Previous title was "${existingTitle}". You MUST write a completely different angle — different hook, different structure, different opening word. No overlap at all.`
     : '';
 
-  const prompt=`You are an expert Pinterest SEO content writer. Your job is to write UNIQUE, SPECIFIC content for each URL — never use generic templates.
+  const uniquenessNote = allExistingDescs.length > 0
+    ? `⚠ UNIQUENESS CHECK: These descriptions already exist for other pins. Your new description MUST NOT start with the same word or follow the same sentence pattern as any of these:\n${allExistingDescs.map((d,i) => `${i+1}. "${d}"`).join('\n')}`
+    : '';
 
-URL to analyze: ${url}
-URL topic hint: "${topicHint}"
-${variationInstruction}
+  return `You are a professional Pinterest content writer. Write content specifically for this URL.
 
-${boardHint}
+URL: ${url}
+Page topic (from URL slug): "${slug}"
+${variationNote}
 
-STEP 1 — Analyze the URL:
-- What is the SPECIFIC topic? (e.g. not just "fashion" but "boho summer maxi dresses for vacation")
-- Who is the exact target audience?
-- What is the ONE main benefit or outcome?
-- What pain point or desire does this solve?
+${boardList}
 
-STEP 2 — Write the pin with these STRICT rules:
+${uniquenessNote}
 
-TITLE rules:
-- 40-80 characters
-- Start with a NUMBER or POWER WORD (e.g. "7 Ways", "Why", "How to", "The Secret", "Stop", "Best")
-- Be SPECIFIC to this exact topic — zero generic phrases
-- Create curiosity or promise a clear benefit
-- NEVER use: "Check out", "Click here", "Amazing", "Awesome", "Great"
+WRITE THESE 4 FIELDS:
 
-DESCRIPTION rules (THIS IS THE MOST IMPORTANT PART):
-- 200-400 characters
-- First sentence: state the SPECIFIC benefit or outcome the reader will get
-- Second sentence: add ONE specific detail, tip, or interesting fact about this topic
-- Third sentence: soft call to action (save, try, learn)
-- Naturally include 3-5 SEO keywords woven into the sentences — do NOT stuff keywords
-- End with 1-2 relevant hashtags ONLY (e.g. #SummerFashion #OutfitIdeas)
-- NEVER start with: "Discover", "Are you looking", "Do you want", "Check out", "Save this pin"
-- Each description must read differently from any other pin — vary sentence structure
+1. TITLE (40-80 characters):
+- Start with a number OR one of these power openers: "Why", "How to", "The", "Stop", "What", "These", "This"
+- Be specific to THIS exact topic — use the actual subject matter from the URL slug
+- Create genuine curiosity or promise a clear measurable benefit
+- BANNED words: Discover, Amazing, Awesome, Check out, Click here, Best strategies, Real tips
 
-KEYWORDS (tags) rules:
-- Exactly 5 keywords
-- Each must be a real Pinterest search term people type
-- Be specific: "boho maxi dress outfit" not just "dress"
-- Include mix of: broad term, specific term, problem/solution term, audience term, trend term
-- Format: comma-separated, no # symbol
+2. DESCRIPTION (200-400 characters):
+- Write 3 sentences
+- Sentence 1: State one specific, concrete benefit or interesting fact about "${slug || 'this topic'}" — be precise, not vague
+- Sentence 2: Add a specific detail, number, or tip that gives real value
+- Sentence 3: One soft action phrase (e.g. "Save for your next meal plan" or "Try this tonight")
+- Weave in 3-4 SEO keywords naturally inside the sentences — do NOT list keywords separately
+- End with exactly 1-2 hashtags (e.g. #LowCarbRecipes #MealPrep)
+- BANNED openings: "Discover", "Are you", "Do you want", "Looking for", "Check out", "Save this pin"
+- BANNED patterns: "X tips that work", "Real tips", "Best strategies for"
 
-BOARD: Pick from the boards list or suggest one specific name.
+3. TAGS (exactly 5 keywords):
+- Real Pinterest search terms people actually type
+- Specific to "${slug || 'this exact topic'}" — not generic
+- Mix: 1 broad term, 2 specific terms, 1 audience term, 1 action/result term
+- Format: comma-separated phrases, no # symbol
 
-Return ONLY this exact JSON, no markdown, no explanation:
-{"title":"...","description":"...","tags":["specific term 1","specific term 2","specific term 3","specific term 4","specific term 5"],"board":"..."}`;
+4. BOARD: Pick from the board list or suggest one specific name.
+
+Return ONLY this JSON, nothing else:
+{"title":"...","description":"...","tags":["phrase 1","phrase 2","phrase 3","phrase 4","phrase 5"],"board":"..."}`;
+}
+
+async function callAI(url, existingTitle) {
+  const {aiProvider:prov,aiKey:key,aiModel:model,aiBaseUrl:baseUrl}=ST.s;
+  if(!key) return {error:'No API key. Go to Settings tab and add your API key.'};
+
+  const boards = getActiveBoardList();
+  const p = ga();
+  // Pass existing descriptions so AI avoids repeating patterns
+  const existingDescs = p
+    ? p.pins.filter(x=>x.description && x.link!==url).map(x=>x.description.substring(0,80))
+    : [];
+
+  const prompt = buildPrompt(url, existingTitle, boards, existingDescs);
+
   try {
-    const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:prov,apiKey:key,model,baseUrl,prompt})});
-    if(!r.ok){const t=await r.text();throw new Error('Server '+r.status+': '+t.substring(0,100));}
-    const d=await r.json();
+    const r = await fetch('/api/ai', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({provider:prov, apiKey:key, model, baseUrl, prompt})
+    });
+    if(!r.ok) {
+      const t = await r.text();
+      throw new Error('Server error '+r.status+': '+t.substring(0,150));
+    }
+    const d = await r.json();
     if(d.error) throw new Error(d.error);
-    if(d.tags&&d.tags.length>5) d.tags=d.tags.slice(0,5);
+    if(d.tags && d.tags.length > 5) d.tags = d.tags.slice(0,5);
     return d;
-  } catch(e){return{error:e.message};}
+  } catch(e) {
+    return {error: e.message};
+  }
 }
 async function testAI() {
   const btn=document.getElementById('test-btn'),msg=document.getElementById('test-msg'),badge=document.getElementById('conn-badge');
@@ -884,62 +901,15 @@ async function genPin(urlId,isVar=false){
   ST.genIds.add(urlId);renderPins();
   const d=await callAI(ue.url,isVar?pin?.title:'');
   if(d.error){
-    toast('AI: '+d.error,'err');
-    const slug=(ue.url.split('/').filter(Boolean).pop()||'content').replace(/[-_]/g,' ').replace(/\.\w+$/,'');
-    const kw=slug.replace(/\b\w/g,c=>c.toUpperCase());
-    const boards=getActiveBoardList();
-    updPin(urlId,{title:`${kw} — What You Must Know in 2025`,description:`Discover the best strategies for ${slug}. Real tips that work — save this pin! #${slug.replace(/\s/g,'')} #Pinterest2025`,tags:[slug.split(' ')[0]||'guide',slug.split(' ').slice(-1)[0]||'tips','2025ideas','trending','mustsave'].filter((v,i,a)=>a.indexOf(v)===i).slice(0,5),board:boards[0]||pin?.board||''});
+    // Show the real error — do NOT silently use bad fallback text
+    toast('AI failed: '+d.error+' — Check Settings tab for API key', 'err');
+    console.error('genPin error:', d.error);
+    // Leave existing content unchanged so user knows to fix the issue
   } else {
     updPin(urlId,{title:d.title,description:d.description,tags:(d.tags||[]).slice(0,5),board:pin?.board||d.board});
   }
   ST.genIds.delete(urlId);sv();renderPins();renderUrls();upStats();
 }
-// Regenerate description only — different angle each time
-async function regenDesc(urlId){
-  const p=ga(); if(!p)return;
-  const ue=p.urls.find(u=>u.id===urlId); if(!ue)return;
-  const pin=p.pins.find(x=>x.urlId===urlId); if(!pin)return;
-  if(!ST.s.aiKey){toast('Add AI key in Settings first','err');return;}
-
-  const {aiProvider:prov,aiKey:key,aiModel:model,aiBaseUrl:baseUrl}=ST.s;
-  const urlSlug=ue.url.split('/').filter(Boolean).pop()||'';
-  const topic=urlSlug.replace(/[-_]/g,' ').replace(/\.\w+$/,'');
-
-  const existingDescs=p.pins.filter(x=>x.description&&x.urlId!==urlId).map(x=>x.description.substring(0,60)).join(' | ');
-
-  const prompt=`Write a NEW Pinterest pin description for this URL: ${ue.url}
-Topic: "${topic}"
-Pin title: "${pin.title}"
-
-${existingDescs?`IMPORTANT — These descriptions already exist for other pins in this project. Make this one COMPLETELY DIFFERENT in structure, angle and opening words: ${existingDescs}`:''}
-
-Rules for the description:
-- 200-400 characters total
-- Do NOT start with: Discover, Are you, Do you, Check out, Save this, Looking for
-- First sentence: state a specific benefit or interesting fact about "${topic}"
-- Second sentence: add a specific detail, tip, or reason why this matters
-- Third sentence: brief call to action (save/try/explore)
-- Weave in 3-4 SEO keywords naturally — do not list them, make them flow in sentences
-- End with 1-2 hashtags only
-- Sound like a real person wrote it, not a robot
-
-Return ONLY the description text, no JSON, no quotes, no explanation.`;
-
-  const btn=event.target;btn.textContent='↻ Writing...';btn.disabled=true;
-  try{
-    const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:prov,apiKey:key,model,baseUrl,prompt,raw:true})});
-    if(!r.ok) throw new Error('Server error '+r.status);
-    const d=await r.json();
-    const text=d.text||d.description||d.title||'';
-    if(text&&text.length>50){
-      updPin(urlId,{description:text.replace(/^["']|["']$/g,'').trim()});
-      renderPins();
-      toast('New description generated!');
-    } else if(d.error) throw new Error(d.error);
-  }catch(e){toast('Failed: '+e.message,'err');}
-  btn.textContent='↻ New description';btn.disabled=false;
-}
-
 async function genAll(){
   const p=ga();if(!p||!p.urls.length){toast('Add URLs first','err');return;}
   if(!ST.s.aiKey){toast('Add AI key in Settings first','err');return;}
@@ -990,14 +960,8 @@ function renderPins(){
           </div>
         </div>
         <div class="mb">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <label style="margin:0">Description — <span style="color:${pin.description.length>480?'#dc2626':pin.description.length<100&&pin.description.length>0?'#d97706':'#9ca3af'}">${pin.description.length}/500</span>
-            ${pin.description.length>0&&pin.description.length<150?'<span style="font-size:11px;color:#d97706;margin-left:6px">⚠ Too short — aim for 200-400 chars</span>':''}
-            ${pin.description.length>=200&&pin.description.length<=400?'<span style="font-size:11px;color:#059669;margin-left:6px">✓ Good length</span>':''}
-            </label>
-            ${pin.title?`<button class="btn sm" style="font-size:11px;padding:3px 8px" onclick="regenDesc(${u.id})">↻ New description</button>`:''}
-          </div>
-          <textarea maxlength="500" rows="4" oninput="updPin(${u.id},{description:this.value})" style="font-size:13px;line-height:1.5">${pin.description}</textarea>
+          <label>SEO Description — <span style="color:${pin.description.length>480?'#dc2626':pin.description.length>0&&pin.description.length<150?'#d97706':'#059669'}">${pin.description.length}/500</span> <span style="font-size:11px;color:#9ca3af">(ideal: 200-400)</span></label>
+          <textarea maxlength="500" rows="3" oninput="updPin(${u.id},{description:this.value})">${pin.description}</textarea>
         </div>
         <div class="mb">
           <label>Keywords/Tags — <span style="color:${tc>=5?'#dc2626':'#9ca3af'}">max 5 (${tc}/5)</span></label>
@@ -1111,7 +1075,7 @@ function genSched(){
       const tot=h*60+m+Math.floor((i/slots.length)*intv);
       const fh=String(Math.floor(tot/60)%24).padStart(2,'0'),fm=String(tot%60).padStart(2,'0');
       const timeStr=`${fh}:${fm}`;
-      rows.push({date:dateStr,time:timeStr,publishDate:`${yyyy}-${mm}-${dd}T${timeStr}:00`,title:pins[pi].title,pinUrlId:pins[pi].urlId});
+      rows.push({date:dateStr,time:timeStr,publishDate:`${yyyy}-${mm}-${dd} ${timeStr}:00`,title:pins[pi].title,pinUrlId:pins[pi].urlId});
       pi++;
     }
     day++;
@@ -1134,23 +1098,21 @@ function buildExport(){
   empty.style.display='none';
   const rows=pins.map((pin,idx)=>{
     const sched=p.scheduleRows?.[idx];
-    const rawDate=sched?sched.publishDate:'';
-    const pinDate=rawDate?rawDate.replace(' ','T'):'';
     return{
-      'Title':           pin.title||'',
-      'Media URL':       pin.imageUrl||'',
-      'Pinterest board': pin.board||'',
-      'Thumbnail':       '',
-      'Description':     pin.description||'',
-      'Link':            pin.link||'',
-      'Publish date':    pinDate,
-      'Keywords':        (pin.tags||[]).slice(0,5).join(', ')
+      'Title':pin.title||'',
+      'Description':pin.description||'',
+      'Link':pin.link||'',
+      'Image URL (link)':pin.imageUrl||'',
+      'Board':pin.board||'',
+      'Keywords':(pin.tags||[]).slice(0,5).join(' '),
+      'Publish date':sched?sched.publishDate:'',
+      'Note':''
     };
   });
   const warns=[];
-  if(rows.filter(r=>!r['Pinterest board']).length) warns.push('⚠ '+rows.filter(r=>!r['Pinterest board']).length+' pin(s) have no board — required by Pinterest');
-  if(rows.filter(r=>!r['Media URL']).length) warns.push('⚠ '+rows.filter(r=>!r['Media URL']).length+' pin(s) have no image URL — required by Pinterest');
-  if(rows.filter(r=>!r['Publish date']).length) warns.push('ℹ '+rows.filter(r=>!r['Publish date']).length+' pin(s) have no publish date — will publish immediately');
+  if(rows.filter(r=>!r['Board']).length) warns.push('⚠ '+rows.filter(r=>!r['Board']).length+' pin(s) have no board');
+  if(rows.filter(r=>!r['Image URL (link)']).length) warns.push('⚠ '+rows.filter(r=>!r['Image URL (link)']).length+' pin(s) have no image URL');
+  if(rows.filter(r=>!r['Publish date']).length) warns.push('ℹ '+rows.filter(r=>!r['Publish date']).length+' pin(s) have no publish date — will be saved as drafts');
 
   c.innerHTML=`
     ${warns.length?`<div class="alert aw mb">${warns.join('<br>')}</div>`:''}
@@ -1164,7 +1126,7 @@ function buildExport(){
         </tr>`).join('')}</tbody>
       </table></div>
       <div style="padding:10px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:12px;color:#6b7280">${rows.length} pins · Keywords: comma-separated · Pinterest board: exact board name · Publish date: 2025-08-15T08:00:00</span>
+        <span style="font-size:12px;color:#6b7280">${rows.length} pins · Keywords space-separated, no # · Board must match Pinterest exactly · No BOM</span>
         <button class="btn pr sm" onclick="dlCSV()">⬇ Download CSV</button>
       </div>
     </div>`;
@@ -1204,12 +1166,11 @@ function dlCSV(){
 
 // ─── SAMPLE CSV ───────────────────────────────────────────────
 function dlSampleCSV(){
-  // Exact Pinterest official CSV format
   const sample=[
-    'Title,Media URL,Pinterest board,Thumbnail,Description,Link,Publish date,Keywords',
-    '"10 Summer Fashion Ideas You Need in 2025","https://res.cloudinary.com/yourcloud/image/upload/summer.jpg","Summer Fashion","","Discover the hottest summer fashion trends for 2025! Save this pin for later.","https://yoursite.com/summer-fashion","2025-08-15T08:00:00","fashion, summer, outfit, style, trending"',
-    '"Easy Home Decor Tips for Small Spaces","https://i.ibb.co/example/home.jpg","Home Decor","","Transform your small space with these creative and affordable home decor ideas!","https://yoursite.com/home-decor","2025-08-15T11:00:00","home decor, small space, interior design, diy, ideas"',
-    '"Healthy Meal Prep Ideas for Busy Week","https://res.cloudinary.com/yourcloud/image/upload/meal.jpg","Food & Recipes","","Save time and eat healthy with these easy meal prep recipes. Perfect for busy weekdays!","https://yoursite.com/meal-prep","","healthy, meal prep, recipes, food, weekly"'
+    'Title,Description,Link,Image URL (link),Board,Keywords,Publish date,Note',
+    '"10 Summer Fashion Ideas You Need in 2025","Discover the hottest summer fashion trends! Save this pin for your next shopping trip. #SummerFashion #Outfit2025","https://yoursite.com/summer-fashion","https://res.cloudinary.com/yourcloud/image/upload/sample.jpg","Summer Fashion","summer fashion outfit ideas 2025 trending","2025-08-15 08:00:00",""',
+    '"Easy Home Decor Tips for Small Spaces","Transform your small space with these creative home decor ideas. Simple and affordable! #HomeDecor #SmallSpace","https://yoursite.com/home-decor","https://i.ibb.co/example/home.jpg","Home Decor","home decor small space interior design ideas","2025-08-15 11:00:00",""',
+    '"Healthy Meal Prep Ideas for Busy Week","Save time and eat healthy with these easy meal prep recipes. Perfect for busy weekdays! #MealPrep #HealthyEating","https://yoursite.com/meal-prep","","Food & Recipes","meal prep healthy recipes food ideas weekly","",""'
   ].join('\n');
   const blob=new Blob([sample],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pinterest-sample-format.csv';
