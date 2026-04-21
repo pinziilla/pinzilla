@@ -209,13 +209,56 @@ tr:hover td{background:#f9fafb}
         <button class="stor-btn sel" id="st-none" onclick="selStor('none')">None (local only)</button>
         <button class="stor-btn" id="st-cloudinary" onclick="selStor('cloudinary')">Cloudinary</button>
         <button class="stor-btn" id="st-imgbb" onclick="selStor('imgbb')">ImgBB</button>
+        <button class="stor-btn" id="st-bunny" onclick="selStor('bunny')">Bunny.net</button>
         <button class="stor-btn" id="st-s3" onclick="selStor('s3')">Amazon S3</button>
       </div>
       <div id="stor-note" style="font-size:12px;color:#6b7280"></div>
     </div>
   </div>
 
-  <div class="card">
+    <div class="card">
+    <div class="ch">🐰 Bunny.net Storage CDN</div>
+    <div class="cb">
+      <div class="alert ao mb">Fast global CDN storage. Find these in <a href="https://dash.bunny.net" target="_blank">dash.bunny.net</a> → Storage → your zone → FTP &amp; API Access tab.</div>
+      <div class="r2">
+        <div>
+          <label>Storage Zone Name</label>
+          <input type="text" id="bunny-zone" placeholder="your-storage-zone-name" oninput="ST.s.bunnyZone=this.value;sv()">
+          <div style="font-size:11px;color:#9ca3af;margin-top:3px">Shown as <b>Username</b> in FTP settings</div>
+        </div>
+        <div>
+          <label>Password (Storage API Key)</label>
+          <input type="password" id="bunny-password" placeholder="paste password here" style="font-family:monospace" oninput="ST.s.bunnyPassword=this.value;sv()">
+          <div style="font-size:11px;color:#9ca3af;margin-top:3px">The <b>Password</b> in FTP settings (not read-only password)</div>
+        </div>
+        <div>
+          <label>Region Hostname</label>
+          <select id="bunny-region" onchange="ST.s.bunnyRegion=this.value;sv()">
+            <option value="storage.bunnycdn.com">Falkenstein / DE (storage.bunnycdn.com)</option>
+            <option value="ny.storage.bunnycdn.com">New York / US (ny.storage.bunnycdn.com)</option>
+            <option value="la.storage.bunnycdn.com">Los Angeles / US (la.storage.bunnycdn.com)</option>
+            <option value="sg.storage.bunnycdn.com">Singapore (sg.storage.bunnycdn.com)</option>
+            <option value="syd.storage.bunnycdn.com">Sydney / AU (syd.storage.bunnycdn.com)</option>
+            <option value="uk.storage.bunnycdn.com">London / UK (uk.storage.bunnycdn.com)</option>
+            <option value="se.storage.bunnycdn.com">Stockholm / SE (se.storage.bunnycdn.com)</option>
+            <option value="br.storage.bunnycdn.com">Sao Paulo / BR (br.storage.bunnycdn.com)</option>
+          </select>
+          <div style="font-size:11px;color:#9ca3af;margin-top:3px">Must match <b>Hostname</b> shown in your zone FTP settings</div>
+        </div>
+        <div>
+          <label>Pull Zone / CDN URL (for public image links)</label>
+          <input type="text" id="bunny-cdn" placeholder="https://yourzone.b-cdn.net" oninput="ST.s.bunnyCdn=this.value;sv()">
+          <div style="font-size:11px;color:#9ca3af;margin-top:3px">Your Pull Zone URL — images are served from here publicly</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="btn sm" onclick="testBunny()">Test Bunny.net</button>
+        <span id="bunny-msg" style="font-size:12px;color:#6b7280"></span>
+      </div>
+    </div>
+  </div>
+
+<div class="card">
     <div class="ch">🪣 Amazon S3 (Advanced)</div>
     <div class="cb">
       <div class="r2">
@@ -391,7 +434,7 @@ tr:hover td{background:#f9fafb}
       <button class="btn pr" onclick="dlCSV()">⬇ Download CSV</button>
     </div>
   </div>
-  <div class="alert ao mb">✅ Exact Pinterest CSV format: Title, Description, Link, Image URL (link), Board, Keywords, Publish date, Note — Board must exactly match your Pinterest board name</div>
+  <div class="alert ao mb">✅ Exact Pinterest official CSV — columns: Title, Media URL, Pinterest board, Thumbnail, Description, Link, Publish date, Keywords</div>
   <div class="alert ai mb" style="font-size:12px">
     <b>Pinterest CSV rules:</b><br>
     • <b>Board</b> — must match your Pinterest board name exactly (capital letters matter). Example: "Summer Fashion" not "summer fashion"<br>
@@ -415,7 +458,9 @@ tr:hover td{background:#f9fafb}
 const DEF_S = {
   aiProvider:'claude', aiKey:'', aiModel:'claude-sonnet-4-20250514', aiBaseUrl:'',
   storProv:'none', cldCloud:'', cldApiKey:'', cldPreset:'',
-  imgbbKey:'', s3Bucket:'', s3Region:'us-east-1', s3AccessKey:'', s3SecretKey:''
+  imgbbKey:'',
+  bunnyZone:'', bunnyPassword:'', bunnyRegion:'storage.bunnycdn.com', bunnyCdn:'',
+  s3Bucket:'', s3Region:'us-east-1', s3AccessKey:'', s3SecretKey:''
 };
 
 const ST = {
@@ -430,7 +475,7 @@ const ST = {
   _newBoards: []
 };
 
-const CSV_HDRS = ['Title','Description','Link','Image URL (link)','Board','Keywords','Publish date','Note'];
+const CSV_HDRS = ['Title','Media URL','Pinterest board','Thumbnail','Description','Link','Publish date','Keywords'];
 
 // ─── PERSIST ─────────────────────────────────────────────────
 function sv() {
@@ -514,8 +559,8 @@ function selProv(p,btn) {
 }
 function selStor(p) {
   ST.s.storProv=p; sv();
-  ['none','cloudinary','imgbb','s3'].forEach(s=>{const b=document.getElementById('st-'+s);if(b){b.classList.remove('sel');if(s===p)b.classList.add('sel');}});
-  const notes={none:'Images will be local preview only.',cloudinary:'Images upload to Cloudinary — permanent URLs in CSV.',imgbb:'Images upload to ImgBB — permanent URLs in CSV.',s3:'Images upload to S3 bucket.'};
+  ['none','cloudinary','imgbb','bunny','s3'].forEach(s=>{const b=document.getElementById('st-'+s);if(b){b.classList.remove('sel');if(s===p)b.classList.add('sel');}});
+  const notes={none:'Images will be local preview only.',cloudinary:'Images upload to Cloudinary — permanent URLs in CSV.',imgbb:'Images upload to ImgBB — permanent URLs in CSV.',bunny:'Images upload to Bunny.net CDN — fast global delivery.',s3:'Images upload to S3 bucket.'};
   document.getElementById('stor-note').textContent=notes[p]||'';
 }
 function saveAllSettings() {
@@ -526,6 +571,10 @@ function saveAllSettings() {
   ST.s.cldApiKey=document.getElementById('cld-apikey').value||'';
   ST.s.cldPreset=document.getElementById('cld-preset').value||'';
   ST.s.imgbbKey=document.getElementById('ibb-key').value||'';
+  ST.s.bunnyZone=(document.getElementById('bunny-zone')?.value||'').trim();
+  ST.s.bunnyPassword=(document.getElementById('bunny-password')?.value||'').trim();
+  ST.s.bunnyRegion=document.getElementById('bunny-region')?.value||'storage.bunnycdn.com';
+  ST.s.bunnyCdn=(document.getElementById('bunny-cdn')?.value||'').trim();
   ST.s.s3Bucket=document.getElementById('s3-bucket').value||'';
   ST.s.s3Region=document.getElementById('s3-region').value||'us-east-1';
   ST.s.s3AccessKey=document.getElementById('s3-ak').value||'';
@@ -632,13 +681,30 @@ async function testAI() {
 }
 
 // ─── IMAGE UPLOAD ─────────────────────────────────────────────
+async function testBunny() {
+  const msg=document.getElementById('bunny-msg');
+  msg.textContent='Testing...'; msg.style.color='#6b7280';
+  if(!ST.s.bunnyZone||!ST.s.bunnyPassword){msg.textContent='Enter Zone Name and Password first';msg.style.color='#dc2626';return;}
+  const b64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  try {
+    const r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({provider:'bunny',bunnyZone:ST.s.bunnyZone,bunnyPassword:ST.s.bunnyPassword,
+        bunnyRegion:ST.s.bunnyRegion||'storage.bunnycdn.com',bunnyCdn:ST.s.bunnyCdn||'',
+        imageBase64:b64,fileName:'pinforge-test.png',mimeType:'image/png'})});
+    const d=await r.json();
+    if(d.url){msg.textContent='✓ Bunny.net working! URL: '+d.url.substring(0,50)+'...';msg.style.color='#059669';toast('Bunny.net connected!');}
+    else throw new Error(d.error||'No URL returned');
+  } catch(e){msg.textContent='Failed: '+e.message;msg.style.color='#dc2626';toast('Bunny.net failed: '+e.message,'err');}
+}
+
 async function uploadFile(file) {
   const sp=ST.s.storProv; if(sp==='none') return null;
   const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
   try {
     let body={imageBase64:b64,fileName:file.name,mimeType:file.type};
-    if(sp==='cloudinary'){if(!ST.s.cldCloud||!ST.s.cldPreset){toast('Set Cloudinary settings first','err');return null;}Object.assign(body,{provider:'cloudinary',cloudName:ST.s.cldCloud,uploadPreset:ST.s.cldPreset});}
-    else if(sp==='imgbb'){if(!ST.s.imgbbKey){toast('Set ImgBB key first','err');return null;}Object.assign(body,{provider:'imgbb',imgbbKey:ST.s.imgbbKey});}
+    if(sp==='cloudinary'){if(!ST.s.cldCloud||!ST.s.cldPreset){toast('Set Cloudinary cloud name and preset in Settings','err');return null;}Object.assign(body,{provider:'cloudinary',cloudName:ST.s.cldCloud,uploadPreset:ST.s.cldPreset});}
+    else if(sp==='imgbb'){if(!ST.s.imgbbKey){toast('Set ImgBB API key in Settings','err');return null;}Object.assign(body,{provider:'imgbb',imgbbKey:ST.s.imgbbKey});}
+    else if(sp==='bunny'){if(!ST.s.bunnyZone||!ST.s.bunnyPassword){toast('Set Bunny.net zone and password in Settings','err');return null;}Object.assign(body,{provider:'bunny',bunnyZone:ST.s.bunnyZone,bunnyPassword:ST.s.bunnyPassword,bunnyRegion:ST.s.bunnyRegion||'storage.bunnycdn.com',bunnyCdn:ST.s.bunnyCdn||''});}
     else return null;
     const r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
@@ -1075,7 +1141,7 @@ function genSched(){
       const tot=h*60+m+Math.floor((i/slots.length)*intv);
       const fh=String(Math.floor(tot/60)%24).padStart(2,'0'),fm=String(tot%60).padStart(2,'0');
       const timeStr=`${fh}:${fm}`;
-      rows.push({date:dateStr,time:timeStr,publishDate:`${yyyy}-${mm}-${dd} ${timeStr}:00`,title:pins[pi].title,pinUrlId:pins[pi].urlId});
+      rows.push({date:dateStr,time:timeStr,publishDate:`${yyyy}-${mm}-${dd}T${timeStr}:00`,title:pins[pi].title,pinUrlId:pins[pi].urlId});
       pi++;
     }
     day++;
@@ -1098,15 +1164,17 @@ function buildExport(){
   empty.style.display='none';
   const rows=pins.map((pin,idx)=>{
     const sched=p.scheduleRows?.[idx];
+    const rawDate = sched ? sched.publishDate : '';
+    const pinDate = rawDate ? rawDate.replace(' ','T') : '';
     return{
-      'Title':pin.title||'',
-      'Description':pin.description||'',
-      'Link':pin.link||'',
-      'Image URL (link)':pin.imageUrl||'',
-      'Board':pin.board||'',
-      'Keywords':(pin.tags||[]).slice(0,5).join(' '),
-      'Publish date':sched?sched.publishDate:'',
-      'Note':''
+      'Title':           pin.title||'',
+      'Media URL':       pin.imageUrl||'',
+      'Pinterest board': pin.board||'',
+      'Thumbnail':       '',
+      'Description':     pin.description||'',
+      'Link':            pin.link||'',
+      'Publish date':    pinDate,
+      'Keywords':        (pin.tags||[]).slice(0,5).join(', ')
     };
   });
   const warns=[];
@@ -1187,6 +1255,10 @@ function restoreUI(){
   if(ST.s.cldApiKey) document.getElementById('cld-apikey').value=ST.s.cldApiKey;
   if(ST.s.cldPreset) document.getElementById('cld-preset').value=ST.s.cldPreset;
   if(ST.s.imgbbKey) document.getElementById('ibb-key').value=ST.s.imgbbKey;
+  if(ST.s.bunnyZone){const e=document.getElementById('bunny-zone');if(e)e.value=ST.s.bunnyZone;}
+  if(ST.s.bunnyPassword){const e=document.getElementById('bunny-password');if(e)e.value=ST.s.bunnyPassword;}
+  if(ST.s.bunnyRegion){const sel=document.getElementById('bunny-region');if(sel)for(let o of sel.options)if(o.value===ST.s.bunnyRegion)o.selected=true;}
+  if(ST.s.bunnyCdn){const e=document.getElementById('bunny-cdn');if(e)e.value=ST.s.bunnyCdn;}
   if(ST.s.s3Bucket) document.getElementById('s3-bucket').value=ST.s.s3Bucket;
   if(ST.s.s3Region) document.getElementById('s3-region').value=ST.s.s3Region;
   if(ST.s.s3AccessKey) document.getElementById('s3-ak').value=ST.s.s3AccessKey;
