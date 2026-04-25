@@ -143,18 +143,40 @@ tr:hover td{background:#f9fafb}
         <button class="prov-pill" onclick="selProv('grok',this)">Grok (xAI)</button>
         <button class="prov-pill" onclick="selProv('custom',this)">Custom API</button>
       </div>
-      <div class="mb">
-        <label>API Key — <span id="klink"></span></label>
+      <!-- Per-provider API key fields -->
+      <div id="key-claude" class="mb prov-key-section">
+        <label>Claude API Key — <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#E60023;font-size:11px">Get key →</a></label>
         <div style="display:flex;gap:8px">
-          <input type="password" id="ai-key" placeholder="sk-ant-api03-..." style="flex:1;font-family:monospace" oninput="ST.s.aiKey=this.value;sv()">
-          <button class="btn sm" onclick="tvk('ai-key',this)">Show</button>
+          <input type="password" id="key-claude-inp" placeholder="sk-ant-api03-..." style="flex:1;font-family:monospace" oninput="setProvKey('claude',this.value)">
+          <button class="btn sm" onclick="tvk('key-claude-inp',this)">Show</button>
+        </div>
+      </div>
+      <div id="key-openai" class="mb prov-key-section" style="display:none">
+        <label>OpenAI API Key — <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#E60023;font-size:11px">Get key →</a></label>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="key-openai-inp" placeholder="sk-..." style="flex:1;font-family:monospace" oninput="setProvKey('openai',this.value)">
+          <button class="btn sm" onclick="tvk('key-openai-inp',this)">Show</button>
+        </div>
+      </div>
+      <div id="key-grok" class="mb prov-key-section" style="display:none">
+        <label>Grok API Key — <a href="https://console.x.ai" target="_blank" style="color:#E60023;font-size:11px">Get key →</a></label>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="key-grok-inp" placeholder="xai-..." style="flex:1;font-family:monospace" oninput="setProvKey('grok',this.value)">
+          <button class="btn sm" onclick="tvk('key-grok-inp',this)">Show</button>
+        </div>
+      </div>
+      <div id="key-custom" class="mb prov-key-section" style="display:none">
+        <label>Custom API Key</label>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="key-custom-inp" placeholder="your-api-key" style="flex:1;font-family:monospace" oninput="setProvKey('custom',this.value)">
+          <button class="btn sm" onclick="tvk('key-custom-inp',this)">Show</button>
         </div>
       </div>
       <div class="r2 mb">
         <div><label>Model</label>
           <select id="ai-model" onchange="ST.s.aiModel=this.value;sv()">
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001 (cheapest ✓)</option>
             <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
-            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001 (faster)</option>
           </select>
         </div>
         <div id="cu-url-row" style="display:none"><label>Base URL</label>
@@ -456,7 +478,10 @@ tr:hover td{background:#f9fafb}
 // STATE  — accounts are GLOBAL (permanent, cross-project)
 // ═══════════════════════════════════════════════════════════════
 const DEF_S = {
-  aiProvider:'claude', aiKey:'', aiModel:'claude-sonnet-4-20250514', aiBaseUrl:'',
+  aiProvider:'claude',
+  aiKey:'',           // legacy / active key (kept for callAI compatibility)
+  aiKeys:{claude:'', openai:'', grok:'', custom:''},  // per-provider keys
+  aiModel:'claude-haiku-4-5-20251001', aiBaseUrl:'',
   storProv:'none', cldCloud:'', cldApiKey:'', cldPreset:'',
   imgbbKey:'',
   bunnyZone:'', bunnyPassword:'', bunnyRegion:'storage.bunnycdn.com', bunnyCdn:'',
@@ -492,7 +517,10 @@ function sv() {
 function ld() {
   try {
     const d = JSON.parse(localStorage.getItem('pf6')||'{}');
-    if(d.s) Object.assign(ST.s, d.s);
+    if(d.s) {
+      Object.assign(ST.s, d.s);
+      if(!ST.s.aiKeys) ST.s.aiKeys={claude:'',openai:'',grok:'',custom:''};
+    }
     if(d.accounts) ST.accounts = d.accounts;
     if(d.projects) ST.projects = d.projects;
     if(d.aid) ST.aid = d.aid;
@@ -541,11 +569,18 @@ function upStats() {
 
 // ─── SETTINGS ────────────────────────────────────────────────
 const PM = {
-  claude:{models:['claude-sonnet-4-20250514','claude-haiku-4-5-20251001'],link:'https://console.anthropic.com/settings/keys',ph:'sk-ant-api03-...'},
+  claude:{models:['claude-haiku-4-5-20251001','claude-sonnet-4-20250514'],link:'https://console.anthropic.com/settings/keys',ph:'sk-ant-api03-...'},
   openai:{models:['gpt-4o','gpt-4o-mini','gpt-4-turbo'],link:'https://platform.openai.com/api-keys',ph:'sk-...'},
   grok:{models:['grok-2-1212','grok-beta'],link:'https://console.x.ai',ph:'xai-...'},
   custom:{models:[],link:'',ph:'your-api-key'}
 };
+function setProvKey(prov, val) {
+  if(!ST.s.aiKeys) ST.s.aiKeys={claude:'',openai:'',grok:'',custom:''};
+  ST.s.aiKeys[prov]=val;
+  // keep legacy aiKey in sync with active provider
+  if(prov===ST.s.aiProvider) ST.s.aiKey=val;
+  sv();
+}
 function selProv(p,btn) {
   ST.s.aiProvider=p; sv();
   document.querySelectorAll('.prov-pill').forEach(b=>b.classList.remove('sel')); btn.classList.add('sel');
@@ -553,9 +588,15 @@ function selProv(p,btn) {
   const sel=document.getElementById('ai-model');
   sel.innerHTML=m.models.length?m.models.map(x=>`<option value="${x}">${x}</option>`).join(''):'<option value="">enter model name</option>';
   if(m.models[0]){ST.s.aiModel=m.models[0];sel.value=m.models[0];sv();}
-  document.getElementById('ai-key').placeholder=m.ph;
-  document.getElementById('klink').innerHTML=m.link?`<a href="${m.link}" target="_blank" style="color:#E60023">Get key →</a>`:'';
+  // Show correct key section
+  ['claude','openai','grok','custom'].forEach(k=>{
+    const el=document.getElementById('key-'+k);
+    if(el) el.style.display=k===p?'block':'none';
+  });
   document.getElementById('cu-url-row').style.display=p==='custom'?'block':'none';
+  // Load saved key into visible input
+  const inp=document.getElementById('key-'+p+'-inp');
+  if(inp && ST.s.aiKeys) inp.value=ST.s.aiKeys[p]||'';
 }
 function selStor(p) {
   ST.s.storProv=p; sv();
@@ -564,7 +605,13 @@ function selStor(p) {
   document.getElementById('stor-note').textContent=notes[p]||'';
 }
 function saveAllSettings() {
-  ST.s.aiKey=document.getElementById('ai-key').value||'';
+  if(!ST.s.aiKeys) ST.s.aiKeys={claude:'',openai:'',grok:'',custom:''};
+  ['claude','openai','grok','custom'].forEach(p=>{
+    const inp=document.getElementById('key-'+p+'-inp');
+    if(inp) ST.s.aiKeys[p]=inp.value||'';
+  });
+  // Keep legacy aiKey = active provider key
+  ST.s.aiKey=ST.s.aiKeys[ST.s.aiProvider]||'';
   ST.s.aiModel=document.getElementById('ai-model').value||'';
   ST.s.aiBaseUrl=document.getElementById('ai-baseurl').value||'';
   ST.s.cldCloud=document.getElementById('cld-cloud').value||'';
@@ -583,74 +630,20 @@ function saveAllSettings() {
 }
 
 // ─── AI CALL ─────────────────────────────────────────────────
-function buildPrompt(url, existingTitle, boards, allExistingDescs) {
-  // Extract meaningful topic from URL slug
-  const parts = url.split('/').filter(Boolean);
-  const slug = (parts.pop() || parts.pop() || '').replace(/[-_]/g,' ').replace(/\.\w+$/,'').trim();
-  const domain = url.split('/')[2] || '';
-
-  const boardList = boards.length ? `BOARD LIST — pick the best match: ${boards.join(' | ')}` : 'Suggest a specific Pinterest board name.';
-
-  const variationNote = existingTitle
-    ? `⚠ VARIATION MODE: Previous title was "${existingTitle}". You MUST write a completely different angle — different hook, different structure, different opening word. No overlap at all.`
-    : '';
-
-  const uniquenessNote = allExistingDescs.length > 0
-    ? `⚠ UNIQUENESS CHECK: These descriptions already exist for other pins. Your new description MUST NOT start with the same word or follow the same sentence pattern as any of these:\n${allExistingDescs.map((d,i) => `${i+1}. "${d}"`).join('\n')}`
-    : '';
-
-  return `You are a professional Pinterest content writer. Write content specifically for this URL.
-
-URL: ${url}
-Page topic (from URL slug): "${slug}"
-${variationNote}
-
-${boardList}
-
-${uniquenessNote}
-
-WRITE THESE 4 FIELDS:
-
-1. TITLE (40-80 characters):
-- Start with a number OR one of these power openers: "Why", "How to", "The", "Stop", "What", "These", "This"
-- Be specific to THIS exact topic — use the actual subject matter from the URL slug
-- Create genuine curiosity or promise a clear measurable benefit
-- BANNED words: Discover, Amazing, Awesome, Check out, Click here, Best strategies, Real tips
-
-2. DESCRIPTION (200-400 characters):
-- Write 3 sentences
-- Sentence 1: State one specific, concrete benefit or interesting fact about "${slug || 'this topic'}" — be precise, not vague
-- Sentence 2: Add a specific detail, number, or tip that gives real value
-- Sentence 3: One soft action phrase (e.g. "Save for your next meal plan" or "Try this tonight")
-- Weave in 3-4 SEO keywords naturally inside the sentences — do NOT list keywords separately
-- End with exactly 1-2 hashtags (e.g. #LowCarbRecipes #MealPrep)
-- BANNED openings: "Discover", "Are you", "Do you want", "Looking for", "Check out", "Save this pin"
-- BANNED patterns: "X tips that work", "Real tips", "Best strategies for"
-
-3. TAGS (exactly 5 keywords):
-- Real Pinterest search terms people actually type
-- Specific to "${slug || 'this exact topic'}" — not generic
-- Mix: 1 broad term, 2 specific terms, 1 audience term, 1 action/result term
-- Format: comma-separated phrases, no # symbol
-
-4. BOARD: Pick from the board list or suggest one specific name.
-
-Return ONLY this JSON, nothing else:
-{"title":"...","description":"...","tags":["phrase 1","phrase 2","phrase 3","phrase 4","phrase 5"],"board":"..."}`;
+function buildPrompt(url, existingTitle, boards) {
+  const slug = (url.split('/').filter(Boolean).pop() || '').replace(/[-_]/g,' ').replace(/\.\w+$/,'').trim();
+  const board = boards.length ? boards.join('|') : '';
+  const vary = existingTitle ? ` Prev title:"${existingTitle.substring(0,40)}"-write different.` : '';
+  return `Topic:"${slug}" URL:${url}${vary}${board?' Boards:'+board:''}
+JSON only:{"title":"40-80chr viral Pinterest title","description":"200-300chr:benefit+tip+CTA+2hashtags","tags":["tag1","tag2","tag3","tag4","tag5"],"board":"name"}`;
 }
 
 async function callAI(url, existingTitle) {
-  const {aiProvider:prov,aiKey:key,aiModel:model,aiBaseUrl:baseUrl}=ST.s;
-  if(!key) return {error:'No API key. Go to Settings tab and add your API key.'};
+  const {aiProvider:prov,aiModel:model,aiBaseUrl:baseUrl}=ST.s;
+  const key = (ST.s.aiKeys && ST.s.aiKeys[prov]) || ST.s.aiKey || '';
+  if(!key) return {error:'No API key for '+prov+'. Go to Settings.'};
 
-  const boards = getActiveBoardList();
-  const p = ga();
-  // Pass existing descriptions so AI avoids repeating patterns
-  const existingDescs = p
-    ? p.pins.filter(x=>x.description && x.link!==url).map(x=>x.description.substring(0,80))
-    : [];
-
-  const prompt = buildPrompt(url, existingTitle, boards, existingDescs);
+  const prompt = buildPrompt(url, existingTitle, getActiveBoardList());
 
   try {
     const r = await fetch('/api/ai', {
@@ -660,7 +653,7 @@ async function callAI(url, existingTitle) {
     });
     if(!r.ok) {
       const t = await r.text();
-      throw new Error('Server error '+r.status+': '+t.substring(0,150));
+      throw new Error('Server '+r.status+': '+t.substring(0,120));
     }
     const d = await r.json();
     if(d.error) throw new Error(d.error);
@@ -672,7 +665,8 @@ async function callAI(url, existingTitle) {
 }
 async function testAI() {
   const btn=document.getElementById('test-btn'),msg=document.getElementById('test-msg'),badge=document.getElementById('conn-badge');
-  if(!ST.s.aiKey){msg.textContent='Add API key first';msg.style.color='#dc2626';return;}
+  const activeKey = (ST.s.aiKeys && ST.s.aiKeys[ST.s.aiProvider]) || ST.s.aiKey || '';
+  if(!activeKey){msg.textContent='Add API key first';msg.style.color='#dc2626';return;}
   btn.textContent='Testing...';btn.disabled=true;msg.textContent='';badge.textContent='Testing...';
   const d=await callAI('https://example.com/pinterest-growth-tips');
   if(d.error){msg.textContent='Failed: '+d.error;msg.style.color='#dc2626';badge.textContent='Failed';badge.style.cssText='background:#fee2e2;color:#991b1b';toast('Connection failed: '+d.error,'err');}
@@ -978,7 +972,8 @@ async function genPin(urlId,isVar=false){
 }
 async function genAll(){
   const p=ga();if(!p||!p.urls.length){toast('Add URLs first','err');return;}
-  if(!ST.s.aiKey){toast('Add AI key in Settings first','err');return;}
+  const activeKey = (ST.s.aiKeys && ST.s.aiKeys[ST.s.aiProvider]) || ST.s.aiKey || '';
+  if(!activeKey){toast('Add AI key in Settings first','err');return;}
   document.getElementById('ga-btn').disabled=true;
   for(const u of p.urls) await genPin(u.id);
   document.getElementById('ga-btn').disabled=false;
@@ -1248,7 +1243,22 @@ function dlSampleCSV(){
 
 // ─── INIT ─────────────────────────────────────────────────────
 function restoreUI(){
-  if(ST.s.aiKey) document.getElementById('ai-key').value=ST.s.aiKey;
+  // Restore per-provider keys
+  if(!ST.s.aiKeys) ST.s.aiKeys={claude:'',openai:'',grok:'',custom:''};
+  // Migrate legacy single key to provider slot if slots are empty
+  if(ST.s.aiKey && !ST.s.aiKeys[ST.s.aiProvider||'claude']) {
+    ST.s.aiKeys[ST.s.aiProvider||'claude']=ST.s.aiKey;
+  }
+  ['claude','openai','grok','custom'].forEach(p=>{
+    const inp=document.getElementById('key-'+p+'-inp');
+    if(inp) inp.value=ST.s.aiKeys[p]||'';
+  });
+  // Show only the active provider key field
+  const activeProv=ST.s.aiProvider||'claude';
+  ['claude','openai','grok','custom'].forEach(k=>{
+    const el=document.getElementById('key-'+k);
+    if(el) el.style.display=k===activeProv?'block':'none';
+  });
   if(ST.s.aiModel){const sel=document.getElementById('ai-model');for(let o of sel.options)if(o.value===ST.s.aiModel)o.selected=true;}
   if(ST.s.aiBaseUrl) document.getElementById('ai-baseurl').value=ST.s.aiBaseUrl;
   if(ST.s.cldCloud) document.getElementById('cld-cloud').value=ST.s.cldCloud;
