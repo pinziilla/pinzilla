@@ -21,8 +21,9 @@ export default async function handler(req, res) {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: model || 'claude-sonnet-4-20250514',
-          max_tokens: 1500,
+          model: model || 'claude-haiku-4-5-20251001',
+          max_tokens: 300,
+          system: 'You output only valid compact JSON. No prose, no markdown.',
           messages: [{ role: 'user', content: prompt }],
         }),
       });
@@ -43,8 +44,11 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: model || 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 1500,
+          messages: [
+            { role: 'system', content: 'Output only valid compact JSON. No prose, no markdown.' },
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: 300,
         }),
       });
       const data = await r.json();
